@@ -39,35 +39,37 @@ jobs:
       - name: Build Dobby (arm64 + arm64e fat library)
         if: steps.check_arch.outputs.rebuild == 'true'
         run: |
-          echo "Building Dobby for arm64 and arm64e..."
-          mkdir -p _dobby_build && cd _dobby_build
+          echo "Cloning Dobby repository..."
+          git clone --depth=1 https://github.com/jmpews/Dobby.git _dobby_src
 
           # بناء arm64
-          cmake https://github.com/jmpews/Dobby.git \
-            -B build_arm64 \
+          echo "Building for arm64..."
+          cmake -S _dobby_src -B _dobby_build_arm64 \
             -DCMAKE_OSX_SYSROOT=iphoneos \
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DCMAKE_SYSTEM_NAME=iOS \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
             -DCMAKE_BUILD_TYPE=Release
-          cmake --build build_arm64
+          cmake --build _dobby_build_arm64 --parallel $(sysctl -n hw.logicalcpu)
 
           # بناء arm64e
-          cmake https://github.com/jmpews/Dobby.git \
-            -B build_arm64e \
+          echo "Building for arm64e..."
+          cmake -S _dobby_src -B _dobby_build_arm64e \
             -DCMAKE_OSX_SYSROOT=iphoneos \
             -DCMAKE_OSX_ARCHITECTURES=arm64e \
             -DCMAKE_SYSTEM_NAME=iOS \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
             -DCMAKE_BUILD_TYPE=Release
-          cmake --build build_arm64e
+          cmake --build _dobby_build_arm64e --parallel $(sysctl -n hw.logicalcpu)
 
           # دمج المكتبتين في مكتبة fat واحدة
-          lipo -create build_arm64/libdobby.a build_arm64e/libdobby.a -output libdobby_fat.a
-          cp libdobby_fat.a ../libdobby.a
-          cp build_arm64e/include/dobby.h ../dobby.h   # استخدام رأس arm64e
-          cd .. && rm -rf _dobby_build
-          echo "✅ Fat Dobby library (arm64 + arm64e) created."
+          echo "Creating fat library..."
+          lipo -create _dobby_build_arm64/libdobby.a _dobby_build_arm64e/libdobby.a -output libdobby.a
+          cp _dobby_src/include/dobby.h dobby.h
+
+          # تنظيف
+          rm -rf _dobby_src _dobby_build_arm64 _dobby_build_arm64e
+          echo "✅ Fat Dobby library (arm64 + arm64e) ready."
 
       - name: Build bypass.dylib
         run: make
