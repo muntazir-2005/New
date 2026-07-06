@@ -1,41 +1,27 @@
-# Makefile - بناء bypass.dylib (arm64e) باستخدام Dobby
+# Makefile - بناء bypass.dylib من ملفات في نفس المجلد
+XCRUN      = xcrun
+SDK        = iphoneos
+CLANG      = $(XCRUN) -sdk $(SDK) clang
 
-# الأدوات
-XCRUN        = xcrun
-SDK          = iphoneos
-CLANG        = $(XCRUN) -sdk $(SDK) clang
+ARCH       = arm64 arm64e
+MIN_VER    = 14.0
+ARCH_FLAGS = $(addprefix -arch ,$(ARCH)) -miphoneos-version-min=$(MIN_VER)
 
-# المعماريات والإصدار الأدنى
-ARCH         = arm64e
-MIN_VERSION  = 14.0
-ARCH_FLAGS   = -arch $(ARCH) -miphoneos-version-min=$(MIN_VERSION)
+# المسارات (كل شيء في الدليل الحالي)
+CFLAGS     = $(ARCH_FLAGS) -O2 -fobjc-arc -I.
+LDFLAGS    = $(ARCH_FLAGS) -dynamiclib -framework Foundation -lobjc -L. -ldobby
 
-# مسارات المكتبات
-DOBBY_DIR    = libs/Dobby
-INCLUDE_DIRS = -I$(DOBBY_DIR)/include -Isrc
-LIB_DIRS     = -F$(DOBBY_DIR)
-
-# خيارات الترجمة
-CFLAGS       = $(ARCH_FLAGS) -O2 -fobjc-arc $(INCLUDE_DIRS)
-LDFLAGS      = $(ARCH_FLAGS) -dynamiclib -framework Foundation -lobjc $(LIB_DIRS)
-
-# المكتبة الثابتة لـ Dobby
-LIBS         = $(DOBBY_DIR)/libdobby.a
-
-# الملفات المصدرية
-SRC          = src/main.m
-OBJ          = $(SRC:.m=.o)
-
-# الملف الناتج
-TARGET       = bypass.dylib
+# الملفات
+SRC        = main.m
+OBJ        = $(SRC:.m=.o)
+TARGET     = bypass.dylib
 
 .PHONY: all clean
 
 all: $(TARGET)
 
-$(TARGET): $(OBJ)
-	$(CLANG) $(LDFLAGS) $^ $(LIBS) -o $@
-	@echo "✅ Build successful: $(TARGET)"
+$(TARGET): $(OBJ) libdobby.a dobby.h
+	$(CLANG) $(LDFLAGS) $(OBJ) -o $@
 
 %.o: %.m
 	$(CLANG) $(CFLAGS) -c $< -o $@
