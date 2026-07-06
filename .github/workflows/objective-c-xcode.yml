@@ -1,4 +1,4 @@
-name: Build bypass.dylib (iOS arm64e)
+name: Build bypass.dylib (iOS arm64e) - Flat Structure
 
 on:
   push:
@@ -12,26 +12,41 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          submodules: true   # إذا كنت تستخدم Dobby كـ submodule
 
-      - name: Select Xcode (latest stable)
+      - name: Setup Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: latest-stable
 
-      - name: Verify Dobby library exists
+      - name: Ensure Dobby library (build if missing)
         run: |
-          if [ ! -f libs/Dobby/libdobby.a ]; then
-            echo "❌ libdobby.a not found. Please provide Dobby prebuilt for arm64e."
-            exit 1
+          if [ ! -f libdobby.a ]; then
+            echo "⚠️ libdobby.a not found. Building Dobby from source..."
+            git clone --depth=1 https://github.com/jmpews/Dobby.git _temp_dobby
+            cd _temp_dobby
+            mkdir build && cd build
+            cmake .. \
+              -DCMAKE_OSX_SYSROOT=iphoneos \
+              -DCMAKE_OSX_ARCHITECTURES=arm64e \
+              -DCMAKE_SYSTEM_NAME=iOS \
+              -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+              -DCMAKE_BUILD_TYPE=Release
+            make -j$(sysctl -n hw.logicalcpu)
+            cd ../..
+            cp _temp_dobby/build/libdobby.a .
+            cp _temp_dobby/include/dobby.h .
+            rm -rf _temp_dobby
+            echo "✅ Dobby built and placed in root."
+          else
+            echo "✅ libdobby.a already present."
           fi
-          echo "✅ Dobby library found."
+
+      - name: Verify files
+        run: |
+          ls -la libdobby.a dobby.h main.m Makefile
 
       - name: Build dylib
-        run: |
-          make clean
-          make
+        run: make
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
