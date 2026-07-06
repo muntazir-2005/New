@@ -1,4 +1,4 @@
-name: Build bypass.dylib (iOS arm64e) - Flat Structure
+name: Build bypass.dylib (iOS arm64/arm64e)
 
 on:
   push:
@@ -18,34 +18,58 @@ jobs:
         with:
           xcode-version: latest-stable
 
-      - name: Ensure Dobby library (build if missing)
+      - name: Check if libdobby.a supports arm64e
+        id: check_arch
         run: |
-          if [ ! -f libdobby.a ]; then
-            echo "⚠️ libdobby.a not found. Building Dobby from source..."
-            git clone --depth=1 https://github.com/jmpews/Dobby.git _temp_dobby
-            cd _temp_dobby
-            mkdir build && cd build
-            cmake .. \
-              -DCMAKE_OSX_SYSROOT=iphoneos \
-              -DCMAKE_OSX_ARCHITECTURES=arm64e \
-              -DCMAKE_SYSTEM_NAME=iOS \
-              -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
-              -DCMAKE_BUILD_TYPE=Release
-            make -j$(sysctl -n hw.logicalcpu)
-            cd ../..
-            cp _temp_dobby/build/libdobby.a .
-            cp _temp_dobby/include/dobby.h .
-            rm -rf _temp_dobby
-            echo "✅ Dobby built and placed in root."
+          if [ -f libdobby.a ]; then
+            ARCHS=$(lipo -info libdobby.a 2>/dev/null || echo "")
+            echo "Current architectures: $ARCHS"
+            if echo "$ARCHS" | grep -q "arm64e"; then
+              echo "✅ libdobby.a already supports arm64e."
+              echo "rebuild=false" >> $GITHUB_OUTPUT
+            else
+              echo "⚠️ libdobby.a lacks arm64e. Will rebuild."
+              echo "rebuild=true" >> $GITHUB_OUTPUT
+            fi
           else
-            echo "✅ libdobby.a already present."
+            echo "⚠️ libdobby.a not found. Will rebuild."
+            echo "rebuild=true" >> $GITHUB_OUTPUT
           fi
 
-      - name: Verify files
+      - name: Build Dobby (arm64 + arm64e fat library)
+        if: steps.check_arch.outputs.rebuild == 'true'
         run: |
-          ls -la libdobby.a dobby.h main.m Makefile
+          echo "Building Dobby for arm64 and arm64e..."
+          mkdir -p _dobby_build && cd _dobby_build
 
-      - name: Build dylib
+          # بناء arm64
+          cmake https://github.com/jmpews/Dobby.git \
+            -B build_arm64 \
+            -DCMAKE_OSX_SYSROOT=iphoneos \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build_arm64
+
+          # بناء arm64e
+          cmake https://github.com/jmpews/Dobby.git \
+            -B build_arm64e \
+            -DCMAKE_OSX_SYSROOT=iphoneos \
+            -DCMAKE_OSX_ARCHITECTURES=arm64e \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build_arm64e
+
+          # دمج المكتبتين في مكتبة fat واحدة
+          lipo -create build_arm64/libdobby.a build_arm64e/libdobby.a -output libdobby_fat.a
+          cp libdobby_fat.a ../libdobby.a
+          cp build_arm64e/include/dobby.h ../dobby.h   # استخدام رأس arm64e
+          cd .. && rm -rf _dobby_build
+          echo "✅ Fat Dobby library (arm64 + arm64e) created."
+
+      - name: Build bypass.dylib
         run: make
 
       - name: Upload artifact
