@@ -52,17 +52,18 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release
           cmake --build _dobby_build_arm64 --parallel $(sysctl -n hw.logicalcpu)
 
-          # بناء arm64e
+          # بناء arm64e (مع خداع cmake لتجاوز فحص المعالج)
           echo "Building for arm64e..."
           cmake -S _dobby_src -B _dobby_build_arm64e \
             -DCMAKE_OSX_SYSROOT=iphoneos \
             -DCMAKE_OSX_ARCHITECTURES=arm64e \
             -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_SYSTEM_PROCESSOR=arm64 \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
             -DCMAKE_BUILD_TYPE=Release
           cmake --build _dobby_build_arm64e --parallel $(sysctl -n hw.logicalcpu)
 
-          # دمج المكتبتين في مكتبة fat واحدة
+          # دمج المكتبتين
           echo "Creating fat library..."
           lipo -create _dobby_build_arm64/libdobby.a _dobby_build_arm64e/libdobby.a -output libdobby.a
           cp _dobby_src/include/dobby.h dobby.h
