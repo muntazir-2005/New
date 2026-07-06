@@ -1,0 +1,41 @@
+name: Build bypass.dylib (iOS arm64e)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: true   # إذا كنت تستخدم Dobby كـ submodule
+
+      - name: Select Xcode (latest stable)
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Verify Dobby library exists
+        run: |
+          if [ ! -f libs/Dobby/libdobby.a ]; then
+            echo "❌ libdobby.a not found. Please provide Dobby prebuilt for arm64e."
+            exit 1
+          fi
+          echo "✅ Dobby library found."
+
+      - name: Build dylib
+        run: |
+          make clean
+          make
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bypass-hook
+          path: bypass.dylib
+          retention-days: 7
