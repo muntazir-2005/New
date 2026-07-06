@@ -1,4 +1,4 @@
-name: Build bypass.dylib (iOS arm64/arm64e)
+name: Build bypass.dylib (arm64e)
 
 on:
   push:
@@ -18,59 +18,35 @@ jobs:
         with:
           xcode-version: latest-stable
 
-      - name: Check if libdobby.a supports arm64e
-        id: check_arch
+      - name: Build Dobby for arm64e (with fix)
         run: |
-          if [ -f libdobby.a ]; then
-            ARCHS=$(lipo -info libdobby.a 2>/dev/null || echo "")
-            echo "Current architectures: $ARCHS"
-            if echo "$ARCHS" | grep -q "arm64e"; then
-              echo "✅ libdobby.a already supports arm64e."
-              echo "rebuild=false" >> $GITHUB_OUTPUT
-            else
-              echo "⚠️ libdobby.a lacks arm64e. Will rebuild."
-              echo "rebuild=true" >> $GITHUB_OUTPUT
-            fi
+          if [ ! -f libdobby.a ] || ! lipo -info libdobby.a | grep -q arm64e; then
+            echo "Cloning Dobby..."
+            git clone --depth=1 https://github.com/jmpews/Dobby.git _dobby_src
+            
+            # إصلاح ملف فحص المعالج ليدعم arm64e
+            cd _dobby_src
+            sed -i '' 's/string(REGEX MATCH "\(arm64\)" processor_match)/string(REGEX MATCH "\(arm64e\|arm64\)" processor_match)/' cmake/build_environment_check.cmake
+            sed -i '' '/CMAKE_MATCH_0/d' cmake/build_environment_check.cmake
+            cd ..
+
+            echo "Building for arm64e..."
+            cmake -S _dobby_src -B _dobby_build \
+              -DCMAKE_OSX_SYSROOT=iphoneos \
+              -DCMAKE_OSX_ARCHITECTURES=arm64e \
+              -DCMAKE_SYSTEM_NAME=iOS \
+              -DCMAKE_SYSTEM_PROCESSOR=arm64 \
+              -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+              -DCMAKE_BUILD_TYPE=Release
+            cmake --build _dobby_build --parallel $(sysctl -n hw.logicalcpu)
+
+            cp _dobby_build/libdobby.a .
+            cp _dobby_src/include/dobby.h .
+            rm -rf _dobby_src _dobby_build
+            echo "✅ Dobby arm64e built successfully."
           else
-            echo "⚠️ libdobby.a not found. Will rebuild."
-            echo "rebuild=true" >> $GITHUB_OUTPUT
+            echo "✅ libdobby.a with arm64e already exists."
           fi
-
-      - name: Build Dobby (arm64 + arm64e fat library)
-        if: steps.check_arch.outputs.rebuild == 'true'
-        run: |
-          echo "Cloning Dobby repository..."
-          git clone --depth=1 https://github.com/jmpews/Dobby.git _dobby_src
-
-          # بناء arm64
-          echo "Building for arm64..."
-          cmake -S _dobby_src -B _dobby_build_arm64 \
-            -DCMAKE_OSX_SYSROOT=iphoneos \
-            -DCMAKE_OSX_ARCHITECTURES=arm64 \
-            -DCMAKE_SYSTEM_NAME=iOS \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
-            -DCMAKE_BUILD_TYPE=Release
-          cmake --build _dobby_build_arm64 --parallel $(sysctl -n hw.logicalcpu)
-
-          # بناء arm64e (مع خداع cmake لتجاوز فحص المعالج)
-          echo "Building for arm64e..."
-          cmake -S _dobby_src -B _dobby_build_arm64e \
-            -DCMAKE_OSX_SYSROOT=iphoneos \
-            -DCMAKE_OSX_ARCHITECTURES=arm64e \
-            -DCMAKE_SYSTEM_NAME=iOS \
-            -DCMAKE_SYSTEM_PROCESSOR=arm64 \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
-            -DCMAKE_BUILD_TYPE=Release
-          cmake --build _dobby_build_arm64e --parallel $(sysctl -n hw.logicalcpu)
-
-          # دمج المكتبتين
-          echo "Creating fat library..."
-          lipo -create _dobby_build_arm64/libdobby.a _dobby_build_arm64e/libdobby.a -output libdobby.a
-          cp _dobby_src/include/dobby.h dobby.h
-
-          # تنظيف
-          rm -rf _dobby_src _dobby_build_arm64 _dobby_build_arm64e
-          echo "✅ Fat Dobby library (arm64 + arm64e) ready."
 
       - name: Build bypass.dylib
         run: make
@@ -78,6 +54,6 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: bypass-hook
+          name: bypass-hook-arm64e
           path: bypass.dylib
           retention-days: 7
