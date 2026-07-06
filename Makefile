@@ -1,25 +1,19 @@
-# Makefile - بناء bypass.dylib (arm64/arm64e) من ملفات في نفس المجلد
-
-# الأدوات الأساسية
+# Makefile
 XCRUN      = xcrun
 SDK        = iphoneos
 CLANG      = $(XCRUN) -sdk $(SDK) clang
 
-# إعدادات المعمارية ونظام التشغيل
-ARCH       = arm64 arm64e
+ARCH       = arm64e
 MIN_VER    = 14.0
-ARCH_FLAGS = $(addprefix -arch ,$(ARCH)) -miphoneos-version-min=$(MIN_VER)
+ARCH_FLAGS = -arch $(ARCH) -miphoneos-version-min=$(MIN_VER)
 
-# خيارات الترجمة والربط
 CFLAGS     = $(ARCH_FLAGS) -O2 -fobjc-arc -I.
 LDFLAGS    = $(ARCH_FLAGS) -dynamiclib -framework Foundation -lobjc -L. -ldobby -lc++
 
-# الملفات المصدرية والهدف
 SRC        = main.m
 OBJ        = $(SRC:.m=.o)
 TARGET     = bypass.dylib
 
-# القاعدة الرئيسية
 .PHONY: all clean
 
 all: $(TARGET)
