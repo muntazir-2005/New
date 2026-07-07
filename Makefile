@@ -1,12 +1,18 @@
 TARGET := iphone:clang:latest:14.0
-ARCHS := arm64
+ARCHS = arm64
 
 include $(THEOS)/makefiles/common.mk
 
-LIBRARY_NAME = bypass
+TWEAK_NAME = bypass
 
 bypass_FILES = main.m
-bypass_CFLAGS = -fobjc-arc -I$(THEOS_PROJECT_DIR)
-bypass_LDFLAGS = -framework Foundation -framework Security -L$(THEOS_PROJECT_DIR) -lfishhook -lc++
+bypass_FRAMEWORKS = Foundation Security
 
-include $(THEOS_MAKE_PATH)/library.mk
+# المسار إلى جذر المشروع حيث توجد libfishhook.a و fishhook.h
+# نستخدم المسار المباشر للمكتبة لضمان نجاح الربط
+bypass_LDFLAGS = $(THEOS_PROJECT_DIR)/libfishhook.a
+
+# في حال احتجت إلى ربط مكتبة C++ (غير ضروري عادة مع fishhook) أضف -lc++
+# bypass_LDFLAGS = $(THEOS_PROJECT_DIR)/libfishhook.a -lc++
+
+include $(THEOS_MAKE_PATH)/tweak.mk
