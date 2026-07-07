@@ -1,5 +1,5 @@
-// main.m – نسخة نهائية كاملة، بدون واجهات تشخيص خارجية، بدون os_log.
-// تبدأ المحرك بعد 10 ثوانٍ، وتستخدم NSLog للرسائل الداخلية.
+// main.m – نسخة كاملة باستخدام fishhook بدلاً من Dobby (تعمل بدون جيلبريك)
+// الهيكل كما هو، فقط آلية خطافات C تغيرت إلى rebind_symbols.
 
 #import <Foundation/Foundation.h>
 #import <mach-o/dyld.h>
@@ -8,7 +8,7 @@
 #import <objc/runtime.h>
 #import <dispatch/dispatch.h>
 #import <Security/Security.h>
-#include "dobby.h"
+#include "fishhook.h"
 
 // ============================================================
 // MARK: - تعريفات ObjC hooks (بيانات نقية)
@@ -141,34 +141,31 @@ static void bypass_image_added(const struct mach_header *mh, intptr_t slide) {
     return self;
 }
 
-// ================ تثبيت خطافات C ================
+// ================ تثبيت خطافات C باستخدام fishhook ================
 - (void)installAllCHooks {
-    struct {
-        const char *sym;
-        void *hook;
-        void **orig;
-        const char *desc;
-    } hooks[] = {
-        {"ptrace", my_ptrace, (void **)&orig_ptrace, "ptrace"},
-        {"sysctl", my_sysctl, (void **)&orig_sysctl, "sysctl"},
-        {"SecItemCopyMatching", my_SecItemCopyMatching, (void **)&orig_SecItemCopyMatching, "Keychain"},
-        {"EVP_EncryptInit_ex", my_EVP_EncryptInit_ex, (void **)&orig_EVP_EncryptInit_ex, "EVP_EncInit"},
-        {"EVP_DecryptInit_ex", my_EVP_DecryptInit_ex, (void **)&orig_EVP_DecryptInit_ex, "EVP_DecInit"},
-        {"PKCS7_encrypt", my_PKCS7_encrypt, (void **)&orig_PKCS7_encrypt, "PKCS7"},
+    struct rebinding rebindings[] = {
+        {"ptrace", my_ptrace, (void **)&orig_ptrace},
+        {"sysctl", my_sysctl, (void **)&orig_sysctl},
+        {"SecItemCopyMatching", my_SecItemCopyMatching, (void **)&orig_SecItemCopyMatching},
+        {"EVP_EncryptInit_ex", my_EVP_EncryptInit_ex, (void **)&orig_EVP_EncryptInit_ex},
+        {"EVP_DecryptInit_ex", my_EVP_DecryptInit_ex, (void **)&orig_EVP_DecryptInit_ex},
+        {"PKCS7_encrypt", my_PKCS7_encrypt, (void **)&orig_PKCS7_encrypt},
     };
-    int hookCount = sizeof(hooks) / sizeof(hooks[0]);
+    int rebindCount = sizeof(rebindings) / sizeof(struct rebinding);
 
-    for (int i = 0; i < hookCount; i++) {
-        void *addr = dlsym(RTLD_DEFAULT, hooks[i].sym);
-        if (!addr) {
-            NSLog(@"[Bypass] C hook failed: %s (symbol not found)", hooks[i].desc);
-            continue;
-        }
-        int ret = DobbyHook(addr, hooks[i].hook, hooks[i].orig);
-        if (ret == 0) {
-            NSLog(@"[Bypass] C hook installed: %s", hooks[i].desc);
+    int result = rebind_symbols(rebindings, rebindCount);
+    if (result == 0) {
+        NSLog(@"[Bypass] Fishhook C hooks installed successfully (%d symbols).", rebindCount);
+    } else {
+        NSLog(@"[Bypass] Fishhook installation failed with error %d.", result);
+    }
+
+    // طباعة حالة كل رمز
+    for (int i = 0; i < rebindCount; i++) {
+        if (*(rebindings[i].replaced) == NULL) {
+            NSLog(@"[Bypass] C hook %s: original pointer is NULL (symbol may not be dynamically linked).", rebindings[i].name);
         } else {
-            NSLog(@"[Bypass] C hook error %d for %s", ret, hooks[i].desc);
+            NSLog(@"[Bypass] C hook %s: original pointer = %p, replacement = %p", rebindings[i].name, *(rebindings[i].replaced), rebindings[i].replacement);
         }
     }
 }
