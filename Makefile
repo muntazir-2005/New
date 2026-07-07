@@ -1,4 +1,5 @@
-TARGET := iphone:clang:14.0:14.0
+# استخدام أحدث SDK متوفر، والنشر الأدنى iOS 14.0
+TARGET := iphone:clang:latest:14.0
 ARCHS := arm64
 
 include $(THEOS)/makefiles/common.mk
