@@ -1,5 +1,5 @@
-// main.m – نسخة إنتاجية خالية من الأخطاء المذكورة، مع فصل تام للمسؤوليات،
-// بنية تشخيص غير متكررة، جدولة مقاومة للفيضان، وإعادة محاولة ذكية.
+// main.m – نسخة نهائية كاملة متكاملة، خالية من أخطاء البناء.
+// تجمع بين الهندسة الصارمة وإصلاح جميع المشكلات السابقة.
 
 #import <Foundation/Foundation.h>
 #import <mach-o/dyld.h>
@@ -12,7 +12,7 @@
 #include "dobby.h"
 
 // ============================================================
-// MARK: - السجلات (os_log)
+// MARK: - تكوين السجل
 // ============================================================
 static os_log_t bypass_log = NULL;
 #define BYPASS_LOG(fmt, ...) if (bypass_log) os_log(bypass_log, "[Bypass] " fmt, ##__VA_ARGS__)
@@ -35,7 +35,7 @@ typedef NS_ENUM(NSInteger, BypassHookState) {
 @property (nonatomic, readonly, assign) NSUInteger attemptCount;
 @property (nonatomic, readonly, assign) NSTimeInterval firstAttemptTime;
 @property (nonatomic, readonly, assign) NSTimeInterval lastAttemptTime;
-@property (nonatomic, readonly, assign) IMP originalIMP;   // لـ ObjC hooks فقط
+@property (nonatomic, readonly, assign) IMP originalIMP;
 
 - (instancetype)initWithTarget:(NSString *)target state:(BypassHookState)state
                         detail:(NSString *)detail originalIMP:(IMP)originalIMP
@@ -83,17 +83,17 @@ typedef NS_ENUM(NSInteger, BypassHookState) {
 @end
 
 // ============================================================
-// MARK: - تعريفات ObjC hooks (بيانات نقية خالية من runtime)
+// MARK: - تعريفات ObjC hooks (بيانات نقية)
 // ============================================================
 typedef struct {
     const char *className;
-    const char *selectorName;   // نستخدم اسم النص بدلاً من SEL
+    const char *selectorName;
     BOOL isClassMethod;
-    IMP replacement;            // يتم تعيينه لاحقًا (بعد تعريف IMP)
+    IMP replacement;
     const char *description;
 } ObjCHookDescriptor;
 
-// تعريف IMPs الصريحة قبل الجدول
+// تعريف IMPs الصريحة
 static id des_httpDns(id self, SEL _cmd, NSString *domain) { return domain; }
 static id des_getIPv6(id self, SEL _cmd, NSString *ip) { return ip; }
 static void resolver_authChallenge(id self, SEL _cmd, id connection, id challenge) {}
@@ -101,7 +101,7 @@ static NSString *login_session(id self, SEL _cmd) { return @"bypass_s"; }
 static NSString *login_authCode(id self, SEL _cmd) { return @"bypass_a"; }
 static NSString *login_authorizationCode(id self, SEL _cmd) { return @"bypass_z"; }
 
-// الآن الجدول (ليس const، لكننا نضمن أنه immutable بعد التهيئة)
+// جدول الخطافات (غير const لتمكين التعديل الأولي، لكننا نملؤه مباشرة)
 static ObjCHookDescriptor kObjCHooks[] = {
     {"GSDKDESEncrypt", "httpDnsUrlWithDomain:", YES, (IMP)des_httpDns, "GSDKDESEncrypt httpDnsUrl"},
     {"GSDKDESEncrypt", "getIPv6:", YES, (IMP)des_getIPv6, "GSDKDESEncrypt getIPv6"},
@@ -114,32 +114,75 @@ static ObjCHookDescriptor kObjCHooks[] = {
 static const NSUInteger kObjCHookCount = sizeof(kObjCHooks) / sizeof(ObjCHookDescriptor);
 
 // ============================================================
-// MARK: - دالة C لاستدعاء dyld callback (بدلاً من block)
+// MARK: - دوال C البديلة (خارج Objective-C)
 // ============================================================
+typedef int (*ptrace_t)(int, pid_t, caddr_t, int);
+typedef int (*sysctl_t)(int *, u_int, void *, size_t *, void *, size_t);
+typedef OSStatus (*sec_copy_t)(CFDictionaryRef, CFTypeRef *);
+typedef int (*evp_init_t)(void *, const void *, void *, const unsigned char *, const unsigned char *);
+typedef void *(*pkcs7_enc_t)(void *, void *, const void *, int);
+
+static ptrace_t orig_ptrace = NULL;
+static sysctl_t orig_sysctl = NULL;
+static sec_copy_t orig_SecItemCopyMatching = NULL;
+static evp_init_t orig_EVP_EncryptInit_ex = NULL;
+static evp_init_t orig_EVP_DecryptInit_ex = NULL;
+static pkcs7_enc_t orig_PKCS7_encrypt = NULL;
+
+static int my_ptrace(int request, pid_t pid, caddr_t addr, int data) {
+    if (request == 31) return 0;
+    return orig_ptrace ? orig_ptrace(request, pid, addr, data) : 0;
+}
+static int my_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp, size_t newlen) {
+    if (!orig_sysctl) return -1;
+    int ret = orig_sysctl(name, namelen, oldp, oldlenp, newp, newlen);
+    if (ret == 0 && oldp && oldlenp && name && namelen >= 4 &&
+        name[0] == CTL_KERN && name[1] == KERN_PROC && name[2] == KERN_PROC_PID &&
+        *oldlenp >= sizeof(struct kinfo_proc)) {
+        struct kinfo_proc *kp = (struct kinfo_proc *)oldp;
+        if (kp->kp_proc.p_flag & P_TRACED) kp->kp_proc.p_flag &= ~P_TRACED;
+    }
+    return ret;
+}
+static OSStatus my_SecItemCopyMatching(CFDictionaryRef q, CFTypeRef *r) {
+    return errSecItemNotFound;
+}
+static int my_EVP_EncryptInit_ex(void *ctx, const void *cipher, void *impl,
+                                const unsigned char *key, const unsigned char *iv) {
+    return 1;
+}
+static int my_EVP_DecryptInit_ex(void *ctx, const void *cipher, void *impl,
+                                const unsigned char *key, const unsigned char *iv) {
+    return 1;
+}
+static void *my_PKCS7_encrypt(void *certs, void *in, const void *cipher, int flags) {
+    return NULL;
+}
+
+// ============================================================
+// MARK: - جسر C ↔ ObjC (لتفادي block في dyld)
+// ============================================================
+static void BypassController_ScheduleInstall(void);
+
 static void bypass_image_added(const struct mach_header *mh, intptr_t slide) {
-    // يتم تعريف هذه الدالة بعد وجود الـ singleton
-    extern void BypassController_ScheduleInstall(void);
     BypassController_ScheduleInstall();
 }
 
 // ============================================================
-// MARK: - مدير الخطافات المركزي (تصميم جديد كلياً)
+// MARK: - مدير الخطافات المركزي
 // ============================================================
 @interface BypassController : NSObject {
-    // حالة التثبيت
     dispatch_queue_t _installQueue;
     BOOL _installScheduled;
     BOOL _needsRescan;
-    NSMutableArray<NSNumber *> *_pendingIndices;      // أرقام الـ hooks المعلقة
-    NSMutableDictionary<NSString *, NSNumber *> *_attemptCounts; // لكل مفتاح، عدد المحاولات
+    NSMutableArray<NSNumber *> *_pendingIndices;
+    NSMutableDictionary<NSString *, NSNumber *> *_attemptCounts;
     NSMutableDictionary<NSString *, NSNumber *> *_firstAttemptTimes;
-    NSMutableDictionary<NSString *, NSValue *> *_originalIMPs;   // IMP الأصلي لكل مفتاح
+    NSMutableDictionary<NSString *, NSValue *> *_originalIMPs;
 
-    // التشخيص
     dispatch_queue_t _diagQueue;
-    NSMutableDictionary<NSString *, BypassDiagnostic *> *_diagnostics; // مفتاح = target
-    NSMutableArray<NSString *> *_diagOrder;  // لحفظ الترتيب
-
+    NSMutableDictionary<NSString *, BypassDiagnostic *> *_diagnostics;
+    NSMutableArray<NSString *> *_diagOrder;
     NSUInteger _maxDiagnostics;
 }
 
@@ -147,12 +190,8 @@ static void bypass_image_added(const struct mach_header *mh, intptr_t slide) {
 - (void)startEngine;
 - (NSArray<BypassDiagnostic *> *)diagnostics;
 - (NSDictionary<NSString *, BypassDiagnostic *> *)currentStates;
+- (void)scheduleInstallObjC;  // <-- إضافة الإعلان
 @end
-
-// تعريف الدالة المجسرة لاستدعاء من C
-void BypassController_ScheduleInstall(void) {
-    [[BypassController shared] scheduleInstallObjC];
-}
 
 @implementation BypassController
 
@@ -180,11 +219,10 @@ void BypassController_ScheduleInstall(void) {
         _diagOrder = [NSMutableArray array];
         _maxDiagnostics = 500;
 
-        // في البداية، جميع الـ ObjC hooks تكون pending
+        // تهيئة جميع الـ ObjC hooks كـ pending
         for (NSUInteger i = 0; i < kObjCHookCount; i++) {
             [_pendingIndices addObject:@(i)];
             NSString *target = [NSString stringWithUTF8String:kObjCHooks[i].description];
-            // إضافة أولية للتشخيص
             [self updateDiagnosticForTarget:target state:BypassHookStatePending
                                      detail:@"waiting" originalIMP:NULL];
         }
@@ -192,11 +230,10 @@ void BypassController_ScheduleInstall(void) {
     return self;
 }
 
-// ================ آلية تشخيص غير متكررة ================
+// ================ إدارة التشخيص ================
 - (void)updateDiagnosticForTarget:(NSString *)target state:(BypassHookState)state
                            detail:(NSString *)detail originalIMP:(IMP)originalIMP {
     dispatch_async(_diagQueue, ^{
-        // نحسب عدد المحاولات الحالي
         NSUInteger attempts = [self->_attemptCounts[target] unsignedIntegerValue];
         NSTimeInterval firstTime = [self->_firstAttemptTimes[target] doubleValue];
         if (firstTime == 0) firstTime = [NSDate timeIntervalSinceReferenceDate];
@@ -211,7 +248,6 @@ void BypassController_ScheduleInstall(void) {
                                                              lastAttemptTime:now];
         self->_diagnostics[target] = newDiag;
 
-        // إدارة الترتيب والحد الأعلى
         if (![self->_diagOrder containsObject:target]) {
             [self->_diagOrder addObject:target];
         }
@@ -223,44 +259,14 @@ void BypassController_ScheduleInstall(void) {
     });
 }
 
-// ================ C hooks (مرة واحدة) ================
+// ================ تثبيت خطافات C ================
 - (void)installAllCHooks {
-    typedef int (*ptrace_t)(int, pid_t, caddr_t, int);
-    typedef int (*sysctl_t)(int *, u_int, void *, size_t *, void *, size_t);
-    typedef OSStatus (*sec_copy_t)(CFDictionaryRef, CFTypeRef *);
-    typedef int (*evp_init_t)(void *, const void *, void *, const unsigned char *, const unsigned char *);
-    typedef void *(*pkcs7_enc_t)(void *, void *, const void *, int);
-
-    static ptrace_t orig_ptrace = NULL;
-    static sysctl_t orig_sysctl = NULL;
-    static sec_copy_t orig_SecItemCopyMatching = NULL;
-    static evp_init_t orig_EVP_EncryptInit_ex = NULL;
-    static evp_init_t orig_EVP_DecryptInit_ex = NULL;
-    static pkcs7_enc_t orig_PKCS7_encrypt = NULL;
-
-    int my_ptrace(int request, pid_t pid, caddr_t addr, int data) {
-        if (request == 31) return 0;
-        return orig_ptrace ? orig_ptrace(request, pid, addr, data) : 0;
-    }
-    int my_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp, size_t newlen) {
-        if (!orig_sysctl) return -1;
-        int ret = orig_sysctl(name, namelen, oldp, oldlenp, newp, newlen);
-        if (ret == 0 && oldp && oldlenp && name && namelen >= 4 &&
-            name[0] == CTL_KERN && name[1] == KERN_PROC && name[2] == KERN_PROC_PID &&
-            *oldlenp >= sizeof(struct kinfo_proc)) {
-            struct kinfo_proc *kp = (struct kinfo_proc *)oldp;
-            if (kp->kp_proc.p_flag & P_TRACED) kp->kp_proc.p_flag &= ~P_TRACED;
-        }
-        return ret;
-    }
-    OSStatus my_SecItemCopyMatching(CFDictionaryRef q, CFTypeRef *r) { return errSecItemNotFound; }
-    int my_EVP_EncryptInit_ex(void *ctx, const void *cipher, void *impl,
-                              const unsigned char *key, const unsigned char *iv) { return 1; }
-    int my_EVP_DecryptInit_ex(void *ctx, const void *cipher, void *impl,
-                              const unsigned char *key, const unsigned char *iv) { return 1; }
-    void *my_PKCS7_encrypt(void *certs, void *in, const void *cipher, int flags) { return NULL; }
-
-    struct { const char *sym; void *hook; void **orig; const char *desc; } hooks[] = {
+    struct {
+        const char *sym;
+        void *hook;
+        void **orig;
+        const char *desc;
+    } hooks[] = {
         {"ptrace", my_ptrace, (void **)&orig_ptrace, "ptrace"},
         {"sysctl", my_sysctl, (void **)&orig_sysctl, "sysctl"},
         {"SecItemCopyMatching", my_SecItemCopyMatching, (void **)&orig_SecItemCopyMatching, "Keychain"},
@@ -268,8 +274,9 @@ void BypassController_ScheduleInstall(void) {
         {"EVP_DecryptInit_ex", my_EVP_DecryptInit_ex, (void **)&orig_EVP_DecryptInit_ex, "EVP_DecInit"},
         {"PKCS7_encrypt", my_PKCS7_encrypt, (void **)&orig_PKCS7_encrypt, "PKCS7"},
     };
+    int hookCount = sizeof(hooks) / sizeof(hooks[0]);
 
-    for (int i = 0; i < sizeof(hooks)/sizeof(hooks[0]); i++) {
+    for (int i = 0; i < hookCount; i++) {
         void *addr = dlsym(RTLD_DEFAULT, hooks[i].sym);
         NSString *target = [NSString stringWithUTF8String:hooks[i].desc];
         if (!addr) {
@@ -288,33 +295,29 @@ void BypassController_ScheduleInstall(void) {
     }
 }
 
-// ================ إعادة محاولة ذكية لـ ObjC hooks ================
+// ================ تثبيت ObjC hooks مع إعادة محاولة ================
 - (void)installPendingObjCHooks {
-    // يجب أن نكون داخل _installQueue
     NSMutableArray *stillPending = [NSMutableArray array];
     for (NSNumber *num in _pendingIndices) {
         NSUInteger idx = [num unsignedIntegerValue];
         if (idx >= kObjCHookCount) continue;
         const ObjCHookDescriptor *desc = &kObjCHooks[idx];
         NSString *target = [NSString stringWithUTF8String:desc->description];
-        
-        // زيادة عداد المحاولات
+
         NSUInteger attempts = [_attemptCounts[target] unsignedIntegerValue] + 1;
         _attemptCounts[target] = @(attempts);
         if (_firstAttemptTimes[target] == nil) {
             _firstAttemptTimes[target] = @([NSDate timeIntervalSinceReferenceDate]);
         }
 
-        // فحص وجود الفئة
         Class cls = objc_getClass(desc->className);
         if (!cls) {
             [self updateDiagnosticForTarget:target state:BypassHookStateClassNotFound
                                      detail:@"class not loaded" originalIMP:NULL];
-            // إذا تجاوزنا الحد الأقصى للمحاولات (20) نحول إلى فشل دائم
             if (attempts >= 20) {
                 [self updateDiagnosticForTarget:target state:BypassHookStateFailed
                                          detail:@"class not found after 20 attempts" originalIMP:NULL];
-                continue; // لا نضيفه إلى stillPending
+                continue;
             }
             [stillPending addObject:num];
             continue;
@@ -334,18 +337,15 @@ void BypassController_ScheduleInstall(void) {
             continue;
         }
 
-        // تثبيت الـ hook
         IMP original = method_setImplementation(m, desc->replacement);
         IMP current = method_getImplementation(m);
         BOOL success = (current == desc->replacement);
 
-        // حفظ original IMP
         _originalIMPs[target] = [NSValue valueWithPointer:original];
 
         if (success) {
             [self updateDiagnosticForTarget:target state:BypassHookStateInstalled
                                      detail:@"hooked" originalIMP:original];
-            // نُخرج هذا العنصر من pending
         } else {
             [self updateDiagnosticForTarget:target state:BypassHookStateFailed
                                      detail:@"IMP mismatch after set" originalIMP:original];
@@ -354,11 +354,10 @@ void BypassController_ScheduleInstall(void) {
             }
         }
     }
-
     _pendingIndices = stillPending;
 }
 
-// جدولة مع coalescing حقيقية
+// ================ جدولة المقاومة للفيضان ================
 - (void)scheduleInstallObjC {
     BOOL shouldSubmit = NO;
     @synchronized (self) {
@@ -366,7 +365,6 @@ void BypassController_ScheduleInstall(void) {
             _installScheduled = YES;
             shouldSubmit = YES;
         } else {
-            // إذا كان هناك مهمة مجدولة بالفعل، نطلب إعادة فحص بعد انتهائها
             _needsRescan = YES;
         }
     }
@@ -381,7 +379,6 @@ void BypassController_ScheduleInstall(void) {
             self->_needsRescan = NO;
             self->_installScheduled = NO;
         }
-        // إذا طلب إعادة فحص أثناء التنفيذ، نُعيد الجدولة فورًا
         if (rescan) {
             [self scheduleInstallObjC];
         }
@@ -392,9 +389,6 @@ void BypassController_ScheduleInstall(void) {
 - (NSArray<BypassDiagnostic *> *)diagnostics {
     __block NSArray *snapshot = nil;
     dispatch_sync(_diagQueue, ^{
-        snapshot = [self->_diagOrder valueForKey:@"self"];
-        snapshot = [snapshot valueForKeyPath:@"self.@unionOfObjects.self"]; // لا، نحتاج لجلب القيم
-        // الطريقة الصحيحة:
         NSMutableArray *arr = [NSMutableArray arrayWithCapacity:self->_diagOrder.count];
         for (NSString *target in self->_diagOrder) {
             BypassDiagnostic *d = self->_diagnostics[target];
@@ -413,7 +407,6 @@ void BypassController_ScheduleInstall(void) {
     return states;
 }
 
-// ================ بدء التشغيل ================
 - (void)startEngine {
     [self installAllCHooks];
     [self scheduleInstallObjC]; // محاولة فورية
@@ -421,6 +414,11 @@ void BypassController_ScheduleInstall(void) {
 }
 
 @end
+
+// دالة C المساعدة التي تستدعي scheduleInstallObjC
+static void BypassController_ScheduleInstall(void) {
+    [[BypassController shared] scheduleInstallObjC];
+}
 
 // ============================================================
 // MARK: - واجهة API العامة
