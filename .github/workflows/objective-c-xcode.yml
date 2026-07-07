@@ -21,7 +21,8 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y fakeroot git gperf lzma compression-tool ccache libostree-dev
+          # تم استبدال compression-tool بالاعتمادات القياسية لـ Ubuntu الحديثة (fakeroot, xz-utils)
+          sudo apt-get install -y fakeroot git gperf lzma ccache libostree-dev build-essential xz-utils
 
       - name: Setup Theos Environment
         run: |
@@ -30,7 +31,7 @@ jobs:
 
       - name: Fetch Modern iOS SDK
         run: |
-          # تحميل الـ SDK الخاص بـ iOS 14.5 المجهز لبيئات الـ Linux modern compiler
+          # تحميل الـ SDK الخاص بـ iOS المجهز لبيئات الـ Linux modern compiler
           git clone https://github.com/theos/sdks.git $GITHUB_WORKSPACE/theos/sdks
           
       - name: Setup Cache for C++ & Clang (Speed up builds)
