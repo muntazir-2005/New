@@ -1,30 +1,21 @@
-XCRUN      = xcrun
-SDK        = iphoneos
-CLANG      = $(XCRUN) -sdk $(SDK) clang
+# تحديد المعماريات المستهدفة (يدعم الأجهزة الحديثة arm64e و arm64)
+TARGET := iphone:clang:latest:14.0
+ARCHS = arm64 arm64e
 
-# تم ترك arm64e ولكن يفضل تحويلها لـ arm64 إذا واجهت مشاكل تشغيل مع Dobby
-ARCH       = arm64e
-MIN_VER    = 14.0
-ARCH_FLAGS = -arch $(ARCH) -miphoneos-version-min=$(MIN_VER)
+include $(THEOS)/makefiles/common.mk
 
-# إضافة دعم الأكواد المصدريّة لـ Objective-C و C++ (بسبب Dobby)
-CFLAGS     = $(ARCH_FLAGS) -O2 -fobjc-arc -I.
-# تم إضافة -framework Security هنا لحل مشكلة التجميع
-LDFLAGS    = $(ARCH_FLAGS) -dynamiclib -framework Foundation -framework Security -lobjc -L. -ldobby -lc++
+TWEAK_NAME = bypass
 
-SRC        = main.m
-OBJ        = $(SRC:.m=.o)
-TARGET     = bypass.dylib
+# تحديد ملف السورس
+bypass_FILES = main.m
 
-.PHONY: all clean
+# إضافة الـ Frameworks المطلوبة من الكود
+bypass_FRAMEWORKS = Foundation Security
 
-all: $(TARGET)
+# ربط مكتبة Dobby (تأكد من وضع ملف libdobby.a داخل مجلد المشروع أو مجلد الـ $THEOS/lib)
+bypass_LDFLAGS = -L. -ldobby -lc++
 
-$(TARGET): $(OBJ) libdobby.a dobby.h
-	$(CLANG) $(LDFLAGS) $(OBJ) -o $@
+include $(THEOS_MAKE_PATH)/tweak.mk
 
-%.o: %.m
-	$(CLANG) $(CFLAGS) -c $< -o $@
-
-clean:
-	rm -f $(OBJ) $(TARGET)
+after-install::
+	install.exec "killall -9 SpringBoard"
