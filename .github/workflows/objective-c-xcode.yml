@@ -21,12 +21,23 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y fakeroot git gperf lzma ccache libostree-dev build-essential xz-utils
+          sudo apt-get install -y fakeroot git gperf lzma ccache libostree-dev build-essential xz-utils wget curl
 
       - name: Setup Theos Environment
         run: |
           git clone --recursive https://github.com/theos/theos.git $GITHUB_WORKSPACE/theos
           echo "THEOS=$GITHUB_WORKSPACE/theos" >> $GITHUB_ENV
+
+      - name: Fetch iOS Toolchain for Linux
+        run: |
+          # إنشاء المجلدات المطلوبة للـ toolchain
+          mkdir -p $GITHUB_WORKSPACE/theos/toolchain/linux/iphone
+          # تحميل أحدث Toolchain رسمي مخصص لبيئة الـ Linux لترجمة أكواد iOS
+          curl -LO https://github.com/theos/toolchain/releases/download/linux-arm64/toolchain-linux-arm64.tar.xz
+          # فك ضغط الـ Toolchain في المسار الصحيح الذي يبحث عنه الـ Makefile
+          tar -xf toolchain-linux-arm64.tar.xz -C $GITHUB_WORKSPACE/theos/toolchain/linux/iphone
+          # تنظيف الملف المضغوط لتوفير المساحة
+          rm toolchain-linux-arm64.tar.xz
 
       - name: Fetch Modern iOS SDK
         run: |
@@ -43,7 +54,8 @@ jobs:
 
       - name: Verify Architecture and Toolchain
         run: |
-          echo "Checking Theos installation..."
+          echo "Checking Theos installation and compiler..."
+          ls -la $GITHUB_WORKSPACE/theos/toolchain/linux/iphone/bin/
           $THEOS/bin/vercmp 1.0 2.0 || true
 
       - name: Compile and Build Package (.deb)
