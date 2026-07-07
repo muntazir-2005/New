@@ -30,14 +30,13 @@ jobs:
 
       - name: Fetch iOS Toolchain for Linux
         run: |
-          # إنشاء المجلدات المطلوبة للـ toolchain
+          # إنشاء المسار المطلوب بدقة
           mkdir -p $GITHUB_WORKSPACE/theos/toolchain/linux/iphone
-          # تحميل أحدث Toolchain رسمي مخصص لبيئة الـ Linux لترجمة أكواد iOS
-          curl -LO https://github.com/theos/toolchain/releases/download/linux-arm64/toolchain-linux-arm64.tar.xz
-          # فك ضغط الـ Toolchain في المسار الصحيح الذي يبحث عنه الـ Makefile
-          tar -xf toolchain-linux-arm64.tar.xz -C $GITHUB_WORKSPACE/theos/toolchain/linux/iphone
-          # تنظيف الملف المضغوط لتوفير المساحة
-          rm toolchain-linux-arm64.tar.xz
+          # استخدام الرابط الرسمي المستقر والمباشر للـ Linux Toolchain المعتمد من Theos
+          curl -fL https://github.com/theos/toolchain/releases/download/v1.0.0/toolchain-linux-arm64.tar.xz -o toolchain.tar.xz
+          # فك الضغط مباشرة إلى مجلد التجميع
+          tar -xf toolchain.tar.xz -C $GITHUB_WORKSPACE/theos/toolchain/linux/iphone
+          rm toolchain.tar.xz
 
       - name: Fetch Modern iOS SDK
         run: |
