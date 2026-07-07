@@ -1,0 +1,10 @@
+Package: com.pubgmobile.bypass
+Name: Bypass Tweak
+Depends: mobilesubstrate
+Version: 1.0.0
+Architecture: iphoneos-arm
+Description: Advanced security and check bypass tweak for iOS/iPadOS.
+Maintainer: Muntazir
+Author: Muntazir
+Section: Tweaks
+  
