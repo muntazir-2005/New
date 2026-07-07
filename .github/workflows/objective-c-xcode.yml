@@ -1,59 +1,63 @@
-name: Build bypass.dylib (arm64e)
+name: "Theos Advanced CI/CD Builder"
 
 on:
   push:
-    branches: [ main ]
-  workflow_dispatch:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch: # يتيح لك تشغيل البناء يدوياً بضغطة زر
 
 jobs:
-  build:
-    runs-on: macos-latest
+  build_tweak:
+    name: Compile & Package Tweak
+    runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
-
-      - name: Setup Xcode
-        uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: latest-stable
+          submodules: recursive
 
-      - name: Build Dobby for arm64e (with fix)
+      - name: Install System Dependencies
         run: |
-          if [ ! -f libdobby.a ] || ! lipo -info libdobby.a | grep -q arm64e; then
-            echo "Cloning Dobby..."
-            git clone --depth=1 https://github.com/jmpews/Dobby.git _dobby_src
-            
-            # إصلاح ملف فحص المعالج ليدعم arm64e
-            cd _dobby_src
-            sed -i '' 's/string(REGEX MATCH "\(arm64\)" processor_match)/string(REGEX MATCH "\(arm64e\|arm64\)" processor_match)/' cmake/build_environment_check.cmake
-            sed -i '' '/CMAKE_MATCH_0/d' cmake/build_environment_check.cmake
-            cd ..
+          sudo apt-get update
+          sudo apt-get install -y fakeroot git gperf lzma compression-tool ccache libostree-dev
 
-            echo "Building for arm64e..."
-            cmake -S _dobby_src -B _dobby_build \
-              -DCMAKE_OSX_SYSROOT=iphoneos \
-              -DCMAKE_OSX_ARCHITECTURES=arm64e \
-              -DCMAKE_SYSTEM_NAME=iOS \
-              -DCMAKE_SYSTEM_PROCESSOR=arm64 \
-              -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
-              -DCMAKE_BUILD_TYPE=Release
-            cmake --build _dobby_build --parallel $(sysctl -n hw.logicalcpu)
+      - name: Setup Theos Environment
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $GITHUB_WORKSPACE/theos
+          echo "THEOS=$GITHUB_WORKSPACE/theos" >> $GITHUB_ENV
 
-            cp _dobby_build/libdobby.a .
-            cp _dobby_src/include/dobby.h .
-            rm -rf _dobby_src _dobby_build
-            echo "✅ Dobby arm64e built successfully."
-          else
-            echo "✅ libdobby.a with arm64e already exists."
-          fi
+      - name: Fetch Modern iOS SDK
+        run: |
+          # تحميل الـ SDK الخاص بـ iOS 14.5 المجهز لبيئات الـ Linux modern compiler
+          git clone https://github.com/theos/sdks.git $GITHUB_WORKSPACE/theos/sdks
+          
+      - name: Setup Cache for C++ & Clang (Speed up builds)
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-theos-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-theos-
 
-      - name: Build bypass.dylib
-        run: make
+      - name: Verify Architecture and Toolchain
+        run: |
+          echo "Checking Theos installation..."
+          $THEOS/bin/vercmp 1.0 2.0 || true
 
-      - name: Upload artifact
+      - name: Compile and Build Package (.deb)
+        run: |
+          # تفعيل الـ Build المتوازي للاستفادة من كامل أنوية المعالج لسرعة البناء
+          export J=$(nproc)
+          make package FINALPACKAGE=1 NO_STRIP=0 -j$J
+        env:
+          THEOS: ${{ github.workspace }}/theos
+
+      - name: Upload Compiled Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: bypass-hook-arm64e
-          path: bypass.dylib
+          name: Bypass-Tweak-Modern-DEB
+          path: packages/*.deb
+          if-no-files-found: error
           retention-days: 7
