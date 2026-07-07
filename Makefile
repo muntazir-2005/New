@@ -5,14 +5,13 @@ include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = bypass
 
-bypass_FILES = main.m
+# إضافة fishhook.c هنا تجعل نظام Theos يترجمه ويربطه تلقائياً دون الحاجة لملفات .a خارجية
+bypass_FILES = main.m fishhook.c
+
+# الأطر البرمجية الأساسية التي يعتمد عليها المشروع
 bypass_FRAMEWORKS = Foundation Security
 
-# المسار إلى جذر المشروع حيث توجد libfishhook.a و fishhook.h
-# نستخدم المسار المباشر للمكتبة لضمان نجاح الربط
-bypass_LDFLAGS = $(THEOS_PROJECT_DIR)/libfishhook.a
-
-# في حال احتجت إلى ربط مكتبة C++ (غير ضروري عادة مع fishhook) أضف -lc++
-# bypass_LDFLAGS = $(THEOS_PROJECT_DIR)/libfishhook.a -lc++
+# تفعيل البحث عن الملفات في المجلد الحالي (الجذر) لقراءة fishhook.h
+bypass_CFLAGS = -I.
 
 include $(THEOS_MAKE_PATH)/tweak.mk
