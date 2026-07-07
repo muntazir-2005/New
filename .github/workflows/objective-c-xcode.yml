@@ -5,12 +5,12 @@ on:
     branches: [ "main", "master" ]
   pull_request:
     branches: [ "main", "master" ]
-  workflow_dispatch: # تشغيل يدوي بضغطة زر
+  workflow_dispatch:
 
 jobs:
   build_tweak:
     name: Compile & Package Tweak
-    runs-on: ubuntu-latest
+    runs-on: macos-latest # استخدام نظام macOS لتجنب مشاكل المترجمات على Linux
 
     steps:
       - name: Checkout Repository
@@ -18,22 +18,20 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install Missing Linux Dependencies
+      - name: Setup Theos Environment
         run: |
-          sudo apt-get update
-          # تثبيت المكتبات الأساسية لضمان عمل الـ Compiler بدون مشاكل ربط ديناميكية
-          sudo apt-get install -y fakeroot build-essential xz-utils libtinfo5
+          git clone --recursive https://github.com/theos/theos.git $GITHUB_WORKSPACE/theos
+          echo "THEOS=$GITHUB_WORKSPACE/theos" >> $GITHUB_ENV
 
-      - name: Setup Theos & Toolchain Automatically
-        uses: Randomblock1/theos-action@v1
-        with:
-          theos-dir: 'theos'
-          theos-sdks: 'https://github.com/theos/sdks'
-          theos-sdks-branch: 'master'
+      - name: Fetch Modern iOS SDK
+        run: |
+          rm -rf $GITHUB_WORKSPACE/theos/sdks
+          git clone https://github.com/theos/sdks.git $GITHUB_WORKSPACE/theos/sdks
 
       - name: Compile and Build Package (.deb)
         run: |
-          export J=$(nproc)
+          # المترجم (Toolchain) مدمج تلقائياً داخل نظام macOS (عبر Xcode)
+          export J=$(sysctl -n hw.ncpu)
           make package FINALPACKAGE=1 NO_STRIP=0 -j$J
         env:
           THEOS: ${{ github.workspace }}/theos
@@ -41,7 +39,7 @@ jobs:
       - name: Upload Compiled Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Bypass-Tweak-Modern-DEB
+          name: Bypass-Tweak-iPad-DEB
           path: packages/*.deb
           if-no-files-found: error
           retention-days: 7
