@@ -5,16 +5,16 @@ include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = bypass
 
-# ملفات السورس الخاصة بالمشروع
+# ملفات السورس
 bypass_FILES = main.m
 
-# الأطر البرمجية المستخدمة
+# الأطر البرمجية
 bypass_FRAMEWORKS = Foundation Security
 
-# توجيه المترجم للبحث عن ملف dobby.h داخل مجلد include
-bypass_CFLAGS = -Iinclude
+# -I. تخبر المترجم بالبحث عن dobby.h في المجلد الحالي (الجذر)
+bypass_CFLAGS = -I.
 
-# توجيه الرابط للبحث عن libdobby.a داخل مجلد lib وربطه ديناميكياً مع C++
-bypass_LDFLAGS = -Llib -ldobby -lc++
+# -L. تخبر الرابط بالبحث عن libdobby.a في المجلد الحالي (الجذر)
+bypass_LDFLAGS = -L. -ldobby -lc++
 
 include $(THEOS_MAKE_PATH)/tweak.mk
