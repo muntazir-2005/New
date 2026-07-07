@@ -1,21 +1,20 @@
-# تحديد المعماريات المستهدفة (يدعم الأجهزة الحديثة arm64e و arm64)
 TARGET := iphone:clang:latest:14.0
-ARCHS = arm64 arm64e
+ARCHS = arm64e
 
 include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = bypass
 
-# تحديد ملف السورس
+# ملفات السورس الخاصة بالمشروع
 bypass_FILES = main.m
 
-# إضافة الـ Frameworks المطلوبة من الكود
+# الأطر البرمجية المستخدمة
 bypass_FRAMEWORKS = Foundation Security
 
-# ربط مكتبة Dobby (تأكد من وضع ملف libdobby.a داخل مجلد المشروع أو مجلد الـ $THEOS/lib)
-bypass_LDFLAGS = -L. -ldobby -lc++
+# توجيه المترجم للبحث عن ملف dobby.h داخل مجلد include
+bypass_CFLAGS = -Iinclude
+
+# توجيه الرابط للبحث عن libdobby.a داخل مجلد lib وربطه ديناميكياً مع C++
+bypass_LDFLAGS = -Llib -ldobby -lc++
 
 include $(THEOS_MAKE_PATH)/tweak.mk
-
-after-install::
-	install.exec "killall -9 SpringBoard"
