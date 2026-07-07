@@ -28,24 +28,10 @@ jobs:
           rm -rf $GITHUB_WORKSPACE/theos/sdks
           git clone https://github.com/theos/sdks.git $GITHUB_WORKSPACE/theos/sdks
 
-      - name: Fetch and Inject Latest Dobby (arm64 + arm64e)
-        run: |
-          # تحميل أحدث نسخة من مكتبة Dobby الثنائية المخصصة لـ iOS
-          curl -fL "https://github.com/jmpews/Dobby/releases/download/v1.2.3/ios-static-library.zip" -o dobby.zip || \
-          curl -fL "https://github.com/jmpews/Dobby/releases/latest/download/ios-static-library.zip" -o dobby.zip
-          
-          unzip -o dobby.zip -d dobby_extracted
-          
-          # استبدال الملفات القديمة في مشروعك بالملفات الحديثة التي تدعم الأجهزة الجديدة
-          cp dobby_extracted/libdobby.a ./libdobby.a
-          cp dobby_extracted/dobby.h ./dobby.h
-          
-          # تنظيف
-          rm -rf dobby.zip dobby_extracted
-
       - name: Compile and Build Package (.deb)
         run: |
           export J=$(sysctl -n hw.ncpu)
+          # نظام Theos سيقوم الآن بقراءة المجلدات والربط تلقائياً بناءً على إعدادات Makefile
           make package FINALPACKAGE=1 NO_STRIP=0 -j$J
         env:
           THEOS: ${{ github.workspace }}/theos
