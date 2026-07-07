@@ -1,5 +1,5 @@
-// main.m – نسخة نهائية كاملة متكاملة، خالية من أخطاء البناء.
-// تجمع بين الهندسة الصارمة وإصلاح جميع المشكلات السابقة.
+// main.m – نسخة نهائية كاملة، بدون واجهات تشخيص خارجية، بدون os_log.
+// تبدأ المحرك بعد 10 ثوانٍ، وتستخدم NSLog للرسائل الداخلية.
 
 #import <Foundation/Foundation.h>
 #import <mach-o/dyld.h>
@@ -7,80 +7,8 @@
 #import <dlfcn.h>
 #import <objc/runtime.h>
 #import <dispatch/dispatch.h>
-#import <os/log.h>
 #import <Security/Security.h>
 #include "dobby.h"
-
-// ============================================================
-// MARK: - تكوين السجل
-// ============================================================
-static os_log_t bypass_log = NULL;
-#define BYPASS_LOG(fmt, ...) if (bypass_log) os_log(bypass_log, "[Bypass] " fmt, ##__VA_ARGS__)
-
-// ============================================================
-// MARK: - نماذج التشخيص (immutable value objects)
-// ============================================================
-typedef NS_ENUM(NSInteger, BypassHookState) {
-    BypassHookStatePending = 0,
-    BypassHookStateInstalled,
-    BypassHookStateFailed,
-    BypassHookStateClassNotFound,
-    BypassHookStateMethodNotFound,
-};
-
-@interface BypassDiagnostic : NSObject <NSCopying>
-@property (nonatomic, readonly, copy) NSString *target;
-@property (nonatomic, readonly, assign) BypassHookState state;
-@property (nonatomic, readonly, copy) NSString *detail;
-@property (nonatomic, readonly, assign) NSUInteger attemptCount;
-@property (nonatomic, readonly, assign) NSTimeInterval firstAttemptTime;
-@property (nonatomic, readonly, assign) NSTimeInterval lastAttemptTime;
-@property (nonatomic, readonly, assign) IMP originalIMP;
-
-- (instancetype)initWithTarget:(NSString *)target state:(BypassHookState)state
-                        detail:(NSString *)detail originalIMP:(IMP)originalIMP
-                  attemptCount:(NSUInteger)attemptCount
-              firstAttemptTime:(NSTimeInterval)firstAttemptTime
-               lastAttemptTime:(NSTimeInterval)lastAttemptTime;
-@end
-
-@implementation BypassDiagnostic
-- (instancetype)initWithTarget:(NSString *)target state:(BypassHookState)state
-                        detail:(NSString *)detail originalIMP:(IMP)originalIMP
-                  attemptCount:(NSUInteger)attemptCount
-              firstAttemptTime:(NSTimeInterval)firstAttemptTime
-               lastAttemptTime:(NSTimeInterval)lastAttemptTime {
-    self = [super init];
-    if (self) {
-        _target = [target copy];
-        _state = state;
-        _detail = [detail copy];
-        _originalIMP = originalIMP;
-        _attemptCount = attemptCount;
-        _firstAttemptTime = firstAttemptTime;
-        _lastAttemptTime = lastAttemptTime;
-    }
-    return self;
-}
-
-- (id)copyWithZone:(NSZone *)zone {
-    return self; // immutable
-}
-
-- (NSString *)description {
-    NSString *stateStr;
-    switch (self.state) {
-        case BypassHookStatePending: stateStr = @"PENDING"; break;
-        case BypassHookStateInstalled: stateStr = @"INSTALLED"; break;
-        case BypassHookStateFailed: stateStr = @"FAILED"; break;
-        case BypassHookStateClassNotFound: stateStr = @"CLASS NOT FOUND"; break;
-        case BypassHookStateMethodNotFound: stateStr = @"METHOD NOT FOUND"; break;
-    }
-    return [NSString stringWithFormat:@"[%@] %@ | %@ | attempts=%lu | original=%p",
-            stateStr, self.target, self.detail ?: @"",
-            (unsigned long)self.attemptCount, self.originalIMP];
-}
-@end
 
 // ============================================================
 // MARK: - تعريفات ObjC hooks (بيانات نقية)
@@ -101,7 +29,7 @@ static NSString *login_session(id self, SEL _cmd) { return @"bypass_s"; }
 static NSString *login_authCode(id self, SEL _cmd) { return @"bypass_a"; }
 static NSString *login_authorizationCode(id self, SEL _cmd) { return @"bypass_z"; }
 
-// جدول الخطافات (غير const لتمكين التعديل الأولي، لكننا نملؤه مباشرة)
+// جدول الخطافات (مملوء مباشرة)
 static ObjCHookDescriptor kObjCHooks[] = {
     {"GSDKDESEncrypt", "httpDnsUrlWithDomain:", YES, (IMP)des_httpDns, "GSDKDESEncrypt httpDnsUrl"},
     {"GSDKDESEncrypt", "getIPv6:", YES, (IMP)des_getIPv6, "GSDKDESEncrypt getIPv6"},
@@ -169,7 +97,7 @@ static void bypass_image_added(const struct mach_header *mh, intptr_t slide) {
 }
 
 // ============================================================
-// MARK: - مدير الخطافات المركزي
+// MARK: - مدير الخطافات المركزي (بدون تشخيص خارجي)
 // ============================================================
 @interface BypassController : NSObject {
     dispatch_queue_t _installQueue;
@@ -177,20 +105,11 @@ static void bypass_image_added(const struct mach_header *mh, intptr_t slide) {
     BOOL _needsRescan;
     NSMutableArray<NSNumber *> *_pendingIndices;
     NSMutableDictionary<NSString *, NSNumber *> *_attemptCounts;
-    NSMutableDictionary<NSString *, NSNumber *> *_firstAttemptTimes;
     NSMutableDictionary<NSString *, NSValue *> *_originalIMPs;
-
-    dispatch_queue_t _diagQueue;
-    NSMutableDictionary<NSString *, BypassDiagnostic *> *_diagnostics;
-    NSMutableArray<NSString *> *_diagOrder;
-    NSUInteger _maxDiagnostics;
 }
-
 + (BypassController *)shared;
 - (void)startEngine;
-- (NSArray<BypassDiagnostic *> *)diagnostics;
-- (NSDictionary<NSString *, BypassDiagnostic *> *)currentStates;
-- (void)scheduleInstallObjC;  // <-- إضافة الإعلان
+- (void)scheduleInstallObjC;
 @end
 
 @implementation BypassController
@@ -208,55 +127,18 @@ static void bypass_image_added(const struct mach_header *mh, intptr_t slide) {
     self = [super init];
     if (self) {
         _installQueue = dispatch_queue_create("com.bypass.install", DISPATCH_QUEUE_SERIAL);
-        _diagQueue = dispatch_queue_create("com.bypass.diagnostics", DISPATCH_QUEUE_SERIAL);
         _installScheduled = NO;
         _needsRescan = NO;
         _pendingIndices = [NSMutableArray array];
         _attemptCounts = [NSMutableDictionary dictionary];
-        _firstAttemptTimes = [NSMutableDictionary dictionary];
         _originalIMPs = [NSMutableDictionary dictionary];
-        _diagnostics = [NSMutableDictionary dictionary];
-        _diagOrder = [NSMutableArray array];
-        _maxDiagnostics = 500;
 
-        // تهيئة جميع الـ ObjC hooks كـ pending
+        // جميع الـ ObjC hooks تبدأ معلقة
         for (NSUInteger i = 0; i < kObjCHookCount; i++) {
             [_pendingIndices addObject:@(i)];
-            NSString *target = [NSString stringWithUTF8String:kObjCHooks[i].description];
-            [self updateDiagnosticForTarget:target state:BypassHookStatePending
-                                     detail:@"waiting" originalIMP:NULL];
         }
     }
     return self;
-}
-
-// ================ إدارة التشخيص ================
-- (void)updateDiagnosticForTarget:(NSString *)target state:(BypassHookState)state
-                           detail:(NSString *)detail originalIMP:(IMP)originalIMP {
-    dispatch_async(_diagQueue, ^{
-        NSUInteger attempts = [self->_attemptCounts[target] unsignedIntegerValue];
-        NSTimeInterval firstTime = [self->_firstAttemptTimes[target] doubleValue];
-        if (firstTime == 0) firstTime = [NSDate timeIntervalSinceReferenceDate];
-        NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
-
-        BypassDiagnostic *newDiag = [[BypassDiagnostic alloc] initWithTarget:target
-                                                                       state:state
-                                                                      detail:detail
-                                                                 originalIMP:originalIMP
-                                                                attemptCount:attempts
-                                                            firstAttemptTime:firstTime
-                                                             lastAttemptTime:now];
-        self->_diagnostics[target] = newDiag;
-
-        if (![self->_diagOrder containsObject:target]) {
-            [self->_diagOrder addObject:target];
-        }
-        while (self->_diagOrder.count > self->_maxDiagnostics) {
-            NSString *old = self->_diagOrder.firstObject;
-            [self->_diagOrder removeObjectAtIndex:0];
-            [self->_diagnostics removeObjectForKey:old];
-        }
-    });
 }
 
 // ================ تثبيت خطافات C ================
@@ -278,19 +160,15 @@ static void bypass_image_added(const struct mach_header *mh, intptr_t slide) {
 
     for (int i = 0; i < hookCount; i++) {
         void *addr = dlsym(RTLD_DEFAULT, hooks[i].sym);
-        NSString *target = [NSString stringWithUTF8String:hooks[i].desc];
         if (!addr) {
-            [self updateDiagnosticForTarget:target state:BypassHookStateFailed
-                                     detail:@"symbol not found" originalIMP:NULL];
+            NSLog(@"[Bypass] C hook failed: %s (symbol not found)", hooks[i].desc);
             continue;
         }
         int ret = DobbyHook(addr, hooks[i].hook, hooks[i].orig);
         if (ret == 0) {
-            [self updateDiagnosticForTarget:target state:BypassHookStateInstalled
-                                     detail:@"hooked" originalIMP:NULL];
+            NSLog(@"[Bypass] C hook installed: %s", hooks[i].desc);
         } else {
-            [self updateDiagnosticForTarget:target state:BypassHookStateFailed
-                                     detail:[NSString stringWithFormat:@"Dobby error %d", ret] originalIMP:NULL];
+            NSLog(@"[Bypass] C hook error %d for %s", ret, hooks[i].desc);
         }
     }
 }
@@ -306,17 +184,11 @@ static void bypass_image_added(const struct mach_header *mh, intptr_t slide) {
 
         NSUInteger attempts = [_attemptCounts[target] unsignedIntegerValue] + 1;
         _attemptCounts[target] = @(attempts);
-        if (_firstAttemptTimes[target] == nil) {
-            _firstAttemptTimes[target] = @([NSDate timeIntervalSinceReferenceDate]);
-        }
 
         Class cls = objc_getClass(desc->className);
         if (!cls) {
-            [self updateDiagnosticForTarget:target state:BypassHookStateClassNotFound
-                                     detail:@"class not loaded" originalIMP:NULL];
             if (attempts >= 20) {
-                [self updateDiagnosticForTarget:target state:BypassHookStateFailed
-                                         detail:@"class not found after 20 attempts" originalIMP:NULL];
+                NSLog(@"[Bypass] ObjC hook failed after %lu attempts: %s (class not loaded)", (unsigned long)attempts, desc->description);
                 continue;
             }
             [stillPending addObject:num];
@@ -326,11 +198,8 @@ static void bypass_image_added(const struct mach_header *mh, intptr_t slide) {
         SEL sel = sel_registerName(desc->selectorName);
         Method m = desc->isClassMethod ? class_getClassMethod(cls, sel) : class_getInstanceMethod(cls, sel);
         if (!m) {
-            [self updateDiagnosticForTarget:target state:BypassHookStateMethodNotFound
-                                     detail:@"method not found" originalIMP:NULL];
             if (attempts >= 20) {
-                [self updateDiagnosticForTarget:target state:BypassHookStateFailed
-                                         detail:@"method not found after 20 attempts" originalIMP:NULL];
+                NSLog(@"[Bypass] ObjC hook failed after %lu attempts: %s (method not found)", (unsigned long)attempts, desc->description);
                 continue;
             }
             [stillPending addObject:num];
@@ -339,19 +208,14 @@ static void bypass_image_added(const struct mach_header *mh, intptr_t slide) {
 
         IMP original = method_setImplementation(m, desc->replacement);
         IMP current = method_getImplementation(m);
-        BOOL success = (current == desc->replacement);
-
-        _originalIMPs[target] = [NSValue valueWithPointer:original];
-
-        if (success) {
-            [self updateDiagnosticForTarget:target state:BypassHookStateInstalled
-                                     detail:@"hooked" originalIMP:original];
+        if (current == desc->replacement) {
+            _originalIMPs[target] = [NSValue valueWithPointer:original];
+            NSLog(@"[Bypass] ObjC hook installed: %s", desc->description);
         } else {
-            [self updateDiagnosticForTarget:target state:BypassHookStateFailed
-                                     detail:@"IMP mismatch after set" originalIMP:original];
             if (attempts < 20) {
                 [stillPending addObject:num];
             }
+            NSLog(@"[Bypass] ObjC hook verification failed: %s (attempt %lu)", desc->description, (unsigned long)attempts);
         }
     }
     _pendingIndices = stillPending;
@@ -385,28 +249,6 @@ static void bypass_image_added(const struct mach_header *mh, intptr_t slide) {
     });
 }
 
-// ================ واجهات التشخيص العامة ================
-- (NSArray<BypassDiagnostic *> *)diagnostics {
-    __block NSArray *snapshot = nil;
-    dispatch_sync(_diagQueue, ^{
-        NSMutableArray *arr = [NSMutableArray arrayWithCapacity:self->_diagOrder.count];
-        for (NSString *target in self->_diagOrder) {
-            BypassDiagnostic *d = self->_diagnostics[target];
-            if (d) [arr addObject:d];
-        }
-        snapshot = [arr copy];
-    });
-    return snapshot;
-}
-
-- (NSDictionary<NSString *, BypassDiagnostic *> *)currentStates {
-    __block NSDictionary *states = nil;
-    dispatch_sync(_diagQueue, ^{
-        states = [self->_diagnostics copy];
-    });
-    return states;
-}
-
 - (void)startEngine {
     [self installAllCHooks];
     [self scheduleInstallObjC]; // محاولة فورية
@@ -421,35 +263,11 @@ static void BypassController_ScheduleInstall(void) {
 }
 
 // ============================================================
-// MARK: - واجهة API العامة
-// ============================================================
-NSArray *BypassGetDiagnostics(void) {
-    return [[BypassController shared] diagnostics];
-}
-
-NSDictionary *BypassGetCurrentStates(void) {
-    return [[BypassController shared] currentStates];
-}
-
-NSArray *BypassGetPendingTargets(void) {
-    NSMutableArray *pending = [NSMutableArray array];
-    NSDictionary *states = BypassGetCurrentStates();
-    for (NSString *target in states) {
-        BypassDiagnostic *d = states[target];
-        if (d.state == BypassHookStatePending ||
-            d.state == BypassHookStateClassNotFound ||
-            d.state == BypassHookStateMethodNotFound) {
-            [pending addObject:target];
-        }
-    }
-    return pending;
-}
-
-// ============================================================
-// MARK: - نقطة الدخول
+// MARK: - نقطة الدخول (تبدأ بعد 10 ثوانٍ)
 // ============================================================
 __attribute__((constructor)) static void bypass_constructor() {
-    bypass_log = os_log_create("com.example.bypass", "hook");
-    [[BypassController shared] startEngine];
-    BYPASS_LOG("Engine started. Diagnostics: %@", BypassGetDiagnostics());
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(10.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [[BypassController shared] startEngine];
+        NSLog(@"[Bypass] Engine started after 10 seconds delay.");
+    });
 }
