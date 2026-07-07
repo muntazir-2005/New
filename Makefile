@@ -14,7 +14,5 @@ bypass_FRAMEWORKS = Foundation Security
 # -I. تخبر المترجم بالبحث عن dobby.h في المجلد الحالي (الجذر)
 bypass_CFLAGS = -I.
 
-# -L. تخبر الرابط بالبحث عن libdobby.a في المجلد الحالي (الجذر)
-bypass_LDFLAGS = -L. -ldobby -lc++
-
+# -framework Security -L. -lfishhook -lc++
 include $(THEOS_MAKE_PATH)/tweak.mk
