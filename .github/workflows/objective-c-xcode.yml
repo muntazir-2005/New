@@ -10,7 +10,7 @@ on:
 jobs:
   build_tweak:
     name: Compile & Package Tweak
-    runs-on: macos-latest # استخدام نظام macOS لتجنب مشاكل المترجمات على Linux
+    runs-on: macos-latest
 
     steps:
       - name: Checkout Repository
@@ -28,9 +28,23 @@ jobs:
           rm -rf $GITHUB_WORKSPACE/theos/sdks
           git clone https://github.com/theos/sdks.git $GITHUB_WORKSPACE/theos/sdks
 
+      - name: Fetch and Inject Latest Dobby (arm64 + arm64e)
+        run: |
+          # تحميل أحدث نسخة من مكتبة Dobby الثنائية المخصصة لـ iOS
+          curl -fL "https://github.com/jmpews/Dobby/releases/download/v1.2.3/ios-static-library.zip" -o dobby.zip || \
+          curl -fL "https://github.com/jmpews/Dobby/releases/latest/download/ios-static-library.zip" -o dobby.zip
+          
+          unzip -o dobby.zip -d dobby_extracted
+          
+          # استبدال الملفات القديمة في مشروعك بالملفات الحديثة التي تدعم الأجهزة الجديدة
+          cp dobby_extracted/libdobby.a ./libdobby.a
+          cp dobby_extracted/dobby.h ./dobby.h
+          
+          # تنظيف
+          rm -rf dobby.zip dobby_extracted
+
       - name: Compile and Build Package (.deb)
         run: |
-          # المترجم (Toolchain) مدمج تلقائياً داخل نظام macOS (عبر Xcode)
           export J=$(sysctl -n hw.ncpu)
           make package FINALPACKAGE=1 NO_STRIP=0 -j$J
         env:
@@ -39,7 +53,7 @@ jobs:
       - name: Upload Compiled Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Bypass-Tweak-iPad-DEB
+          name: Bypass-Tweak-iPad-Modern-DEB
           path: packages/*.deb
           if-no-files-found: error
           retention-days: 7
