@@ -5,7 +5,7 @@ on:
     branches: [ "main", "master" ]
   pull_request:
     branches: [ "main", "master" ]
-  workflow_dispatch:
+  workflow_dispatch: # تشغيل يدوي بضغطة زر
 
 jobs:
   build_tweak:
@@ -18,38 +18,18 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install System Dependencies
+      - name: Install Missing Linux Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y fakeroot git gperf lzma ccache libostree-dev build-essential xz-utils wget curl
+          # تثبيت المكتبات الأساسية لضمان عمل الـ Compiler بدون مشاكل ربط ديناميكية
+          sudo apt-get install -y fakeroot build-essential xz-utils libtinfo5
 
-      - name: Setup Theos Environment
-        run: |
-          git clone --recursive https://github.com/theos/theos.git $GITHUB_WORKSPACE/theos
-          echo "THEOS=$GITHUB_WORKSPACE/theos" >> $GITHUB_ENV
-
-      - name: Fetch iOS Toolchain for Linux
-        run: |
-          # استخدام السكريبت الرسمي المعتمد من Theos لجلب أحدث Toolchain مستقر تلقائياً لنظام Linux
-          curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/update-toolchain | bash
-          
-      - name: Fetch Modern iOS SDK
-        run: |
-          rm -rf $GITHUB_WORKSPACE/theos/sdks
-          git clone https://github.com/theos/sdks.git $GITHUB_WORKSPACE/theos/sdks
-          
-      - name: Setup Cache for C++ & Clang (Speed up builds)
-        uses: actions/cache@v4
+      - name: Setup Theos & Toolchain Automatically
+        uses: Randomblock1/theos-action@v1
         with:
-          path: ~/.ccache
-          key: ${{ runner.os }}-theos-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-theos-
-
-      - name: Verify Architecture and Toolchain
-        run: |
-          echo "Checking Theos installation and compiler..."
-          $THEOS/bin/vercmp 1.0 2.0 || true
+          theos-dir: 'theos'
+          theos-sdks: 'https://github.com/theos/sdks'
+          theos-sdks-branch: 'master'
 
       - name: Compile and Build Package (.deb)
         run: |
