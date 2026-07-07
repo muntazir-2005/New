@@ -5,7 +5,7 @@ on:
     branches: [ "main", "master" ]
   pull_request:
     branches: [ "main", "master" ]
-  workflow_dispatch: # يتيح لك تشغيل البناء يدوياً بضغطة زر
+  workflow_dispatch:
 
 jobs:
   build_tweak:
@@ -21,7 +21,6 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          # تم استبدال compression-tool بالاعتمادات القياسية لـ Ubuntu الحديثة (fakeroot, xz-utils)
           sudo apt-get install -y fakeroot git gperf lzma ccache libostree-dev build-essential xz-utils
 
       - name: Setup Theos Environment
@@ -31,7 +30,7 @@ jobs:
 
       - name: Fetch Modern iOS SDK
         run: |
-          # تحميل الـ SDK الخاص بـ iOS المجهز لبيئات الـ Linux modern compiler
+          rm -rf $GITHUB_WORKSPACE/theos/sdks
           git clone https://github.com/theos/sdks.git $GITHUB_WORKSPACE/theos/sdks
           
       - name: Setup Cache for C++ & Clang (Speed up builds)
@@ -49,7 +48,6 @@ jobs:
 
       - name: Compile and Build Package (.deb)
         run: |
-          # تفعيل الـ Build المتوازي للاستفادة من كامل أنوية المعالج لسرعة البناء
           export J=$(nproc)
           make package FINALPACKAGE=1 NO_STRIP=0 -j$J
         env:
