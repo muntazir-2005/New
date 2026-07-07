@@ -18,6 +18,11 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Install Code Signing Tools (ldid)
+        run: |
+          # تثبيت أداة توقيع الأكواد الخاصة بـ Theos لتجنب خطأ command not found
+          brew install ldid
+
       - name: Setup Theos Environment
         run: |
           git clone --recursive https://github.com/theos/theos.git $GITHUB_WORKSPACE/theos
@@ -31,7 +36,6 @@ jobs:
       - name: Compile and Build Package (.deb)
         run: |
           export J=$(sysctl -n hw.ncpu)
-          # نظام Theos سيقوم الآن بقراءة المجلدات والربط تلقائياً بناءً على إعدادات Makefile
           make package FINALPACKAGE=1 NO_STRIP=0 -j$J
         env:
           THEOS: ${{ github.workspace }}/theos
