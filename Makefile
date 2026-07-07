@@ -3,7 +3,7 @@ XCRUN      = xcrun
 SDK        = iphoneos
 CLANG      = $(XCRUN) -sdk $(SDK) clang
 
-ARCH       = arm64e
+ARCH       = arm64 arm64e
 MIN_VER    = 14.0
 ARCH_FLAGS = -arch $(ARCH) -miphoneos-version-min=$(MIN_VER)
 
