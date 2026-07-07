@@ -1,18 +1,13 @@
-TARGET := iphone:clang:latest:14.0
-ARCHS = arm64
+TARGET := iphone:clang:14.0:14.0
+ARCHS := arm64
 
 include $(THEOS)/makefiles/common.mk
 
-TWEAK_NAME = bypass
+LIBRARY_NAME = bypass
 
-# ملفات السورس
 bypass_FILES = main.m
+bypass_CFLAGS = -fobjc-arc -I.
+bypass_LDFLAGS = -framework Foundation -framework Security -L. -lfishhook -lc++
+bypass_LIBRARIES = objc
 
-# الأطر البرمجية
-bypass_FRAMEWORKS = Foundation Security
-
-# -I. تخبر المترجم بالبحث عن dobby.h في المجلد الحالي (الجذر)
-bypass_CFLAGS = -I.
-
-# -framework Security -L. -lfishhook -lc++
-include $(THEOS_MAKE_PATH)/tweak.mk
+include $(THEOS_MAKE_PATH)/library.mk
